@@ -1,46 +1,60 @@
 import com.alibaba.fastjson.JSON;
+
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
+// a bigger biagram may improve accuracy
 public class Correction {
-    public HashMap<String, Integer> term_cnt;
-    public HashMap<String, Integer> bi_cnt;
-    public ArrayList<Character> alphabet;
-    public HashMap<String,HashMap<String,Double>> spell_error;
-    public Integer total;
-    public Correction() throws IOException {
-        // File file = new File("term_count.json");
+    public static HashMap<String, Integer> term_cnt;
+    public static HashMap<String, Integer> bi_cnt;
+    public static ArrayList<Character> alphabet = new ArrayList<>();
+    public static HashMap<String,HashMap<String,Double>> spell_error = new HashMap<>();
+    public static Integer total;
 
+    static {
+        // File file = new File("term_count.json");
         File file1 = new File("D:\\Documents\\javaproj\\src\\main\\java\\term_count.json");
-        String term_count = FileUtils.readFileToString(file1, "UTF-8");
-        term_cnt = JSON.parseObject(term_count, HashMap.class);
+        try {
+            String term_count = FileUtils.readFileToString(file1, "UTF-8");
+            term_cnt = JSON.parseObject(term_count, HashMap.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
         File file2 = new File("D:\\Documents\\javaproj\\src\\main\\java\\bigram_count.json");
-        String bigram_count = FileUtils.readFileToString(file2, "UTF-8");
-        bi_cnt = JSON.parseObject(term_count, HashMap.class);
+        try {
+            String bigram_count = FileUtils.readFileToString(file2, "UTF-8");
+            bi_cnt = JSON.parseObject(bigram_count, HashMap.class);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
         //http://norvig.com/ngrams/spell-errors.txt
         File file3 = new File("D:\\Documents\\javaproj\\src\\main\\java\\spell-errors.txt");
-        List<String> spelling = FileUtils.readLines(file3);
+        List<String> spelling = null;
+        try {
+            spelling = FileUtils.readLines(file3);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         for (String i: spelling
-             ) {
-            String correct = i.split(":")[0];
+        ) {
+            String correct = i.split(":")[0].strip();
             String[] error = i.split(":")[1].split(",");
             Double prob = 1.0 / error.length;
             HashMap<String,Double> tmp = new HashMap<>();
             for (String j: error
-                 ) {
-                tmp.put(j,prob);
+            ) {
+                tmp.put(j.strip(),prob);
             }
             spell_error.put(correct,tmp);
-        }
+    }
 
 
         char a = 'a';
@@ -49,7 +63,7 @@ public class Correction {
             a++;
         }
 
-        total = term_count.length();
+        total = term_cnt.size();
 
     }
 
@@ -121,10 +135,14 @@ p = log(p(current|former))+log(p(latter|current))
 p(current|former) = count(former current)/count(former)
 smoothing:        = count(...+1)/count(...+N)
 N is number of words in corpus
+
+find the dataset may be small to fit in, eating apple and eating appla both not in bi_cnt
+use the unigram part as well
+P = spell_error.get(correct_word).get(wrong_word) + log(p(current|former))+log(p(latter|current)) + Count(correct)/N
 */
-    public String calculate(HashSet<String> candidates,String mistake,Integer index,ArrayList<String> query){
+    public String calculate(HashSet<String> candidates,String mistake,Integer index,String[] query){
         String res = mistake;
-        double max_prob = 0.0;
+        double max_prob = -1000;
         for (String candidate: candidates
              ) {
             double cur_prob=0.0;
@@ -136,22 +154,26 @@ N is number of words in corpus
                 cur_prob+=Math.log(0.001);
 
             if (index>0) {
-                String previous = query.get(index - 1)+ " " + candidate;
-                if (bi_cnt.get(previous)!=null && term_cnt.get(query.get(index-1))!=null)
-                    cur_prob+=Math.log((bi_cnt.get(previous)+1.0)/(term_cnt.get(query.get(index-1)+total)));
+                String previous = query[index - 1]+ " " + candidate;
+                if (bi_cnt.get(previous)!=null && term_cnt.get(query[index-1])!=null)
+                    cur_prob+=Math.log((bi_cnt.get(previous)+1.0)/(term_cnt.get(query[index-1])+total));
                 else
                     cur_prob+=Math.log(1.0/total);
             }
-            if (index<query.size()-1){
-                String latter = candidate+" "+ query.get(index+1);
-                if (bi_cnt.get(latter)!=null && term_cnt.get(mistake)!=null)
-                    cur_prob=Math.log((bi_cnt.get(latter)+1.0)/(term_cnt.get(mistake)+total));
+            if (index<query.length-1){
+                String latter = candidate+" "+ query[index+1];
+                if (bi_cnt.get(latter)!=null && term_cnt.get(candidate)!=null)
+                    cur_prob=Math.log((bi_cnt.get(latter)+1.0)/(term_cnt.get(candidate)+total));
                 else
                     cur_prob+=Math.log(1.0/total);
             }
-            if (cur_prob>max_prob)
+            // reduce weight of unigram
+            cur_prob += Math.log(term_cnt.get(candidate)*1.0/total)/10;
+
+            if (cur_prob>max_prob){
                 max_prob = cur_prob;
                 res = candidate;
+            }
         }
         return res;
     }
